@@ -10,18 +10,22 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AxiosResponse } from "axios";
 import { badgeColor } from "../utils/SessionStyles";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const Dashboard = () => {
     const [sessions, setSessions] = useState<ResearchSession[]>([]);
-    const [loading, setLoading] = useState<boolean>(false);
+    const [loading, setLoading] = useState<boolean>(true);
     const [modalOpen, setModalOpen] = useState<boolean>(false);
     const [query, setQuery] = useState<string>("");
 
     const router = useRouter();
 
     const fetchSessions = async () => {
+        setLoading(true);
         const historyResponse: AxiosResponse = await api.get("/history");
         setSessions(historyResponse.data);
+        setLoading(false);
     };
     const handleNewResearch = async () => {
         const researchResponse: AxiosResponse<ResearchSession> = await api.post("/research", {
@@ -31,6 +35,7 @@ const Dashboard = () => {
     };
     const handleLogout = () => {
         logout();
+        toast.success("Logged out successfully!");
         router.push("/login");
     };
 
@@ -57,29 +62,39 @@ const Dashboard = () => {
                     </Button>
                 </div>
                 <div className="flex flex-col space-y-4 items-center">
-                    {sessions.map((session: ResearchSession) => (
-                        <Card
-                            key={session.id}
-                            className="w-[600px] p-4 flex flex-row justify-between items-center space-x-4"
-                        >
-                            <div className="space-y-2 flex flex-col items-start">
-                                <p className="text-lg font-medium">{session.query}</p>
-                                <p className="text-sm text-gray-200">
-                                    Created at{" "}
-                                    {session.created_at ? new Date(session.created_at).toLocaleDateString() : "Unknown"}
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <Badge className={`${badgeColor(session.status)} text-white`}>{session.status}</Badge>
-                                <Button
-                                    className="hover:cursor-pointer"
-                                    onClick={() => router.push(`/research/${session.id}`)}
-                                >
-                                    View
-                                </Button>
-                            </div>
-                        </Card>
-                    ))}
+                    {loading ? (
+                        <div className="p-10 flex justify-center items-center">
+                            <Loader2 className="animate-spin" size={75} />
+                        </div>
+                    ) : (
+                        sessions.map((session: ResearchSession) => (
+                            <Card
+                                key={session.id}
+                                className="w-[600px] p-4 flex flex-row justify-between items-center space-x-4"
+                            >
+                                <div className="space-y-2 flex flex-col items-start">
+                                    <p className="text-lg font-medium">{session.query}</p>
+                                    <p className="text-sm text-gray-200">
+                                        Created at{" "}
+                                        {session.created_at
+                                            ? new Date(session.created_at).toLocaleDateString()
+                                            : "Unknown"}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Badge className={`${badgeColor(session.status)} text-white`}>
+                                        {session.status}
+                                    </Badge>
+                                    <Button
+                                        className="hover:cursor-pointer"
+                                        onClick={() => router.push(`/research/${session.id}`)}
+                                    >
+                                        View
+                                    </Button>
+                                </div>
+                            </Card>
+                        ))
+                    )}
                 </div>
             </div>
         </div>
