@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AxiosResponse } from "axios";
+import { badgeColor } from "../utils/SessionStyles";
 
 const Dashboard = () => {
     const [sessions, setSessions] = useState<ResearchSession[]>([]);
@@ -36,22 +37,6 @@ const Dashboard = () => {
     useEffect(() => {
         fetchSessions();
     }, []);
-
-    const badgeColor = (status: string) => {
-        switch (status) {
-            case "pending":
-                return "bg-yellow-500";
-            case "running":
-                return "bg-blue-500";
-            case "done":
-                return "bg-green-500";
-            case "failed":
-                return "bg-red-500";
-            default:
-                return "bg-gray-500";
-        }
-    };
-
     return (
         <div className="min-h-screen p-10 bg-gray-800">
             <nav className="flex justify-between p-4 items-center">
