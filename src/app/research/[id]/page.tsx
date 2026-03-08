@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import api from "@/lib/api";
-import { ResearchSession, AgentUpdate } from "@/types";
+import { ResearchSession, AgentUpdate, Source } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -11,11 +11,13 @@ import { AxiosResponse } from "axios";
 import { toast } from "sonner";
 import { badgeColor } from "@/app/utils/SessionStyles";
 import { Loader2 } from "lucide-react";
+import Link from "next/link";
 
 const page = () => {
     const [session, setSession] = useState<ResearchSession | null>(null);
     const [agentUpdates, setAgentUpdates] = useState<AgentUpdate[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
+    const [sources, setSources] = useState<Source[]>([]);
     const params = useParams();
     const router = useRouter();
     useEffect(() => {
@@ -27,6 +29,10 @@ const page = () => {
             const fetchedSession = getSessionResponse.data;
             setSession(fetchedSession);
             setLoading(false);
+            if (fetchedSession.status === "done") {
+                const getSourcesResponse = await api.get(`/research/${id}/sources`);
+                setSources(getSourcesResponse.data);
+            }
             if (fetchedSession.status === "pending" || fetchedSession.status === "running") {
                 ws = new WebSocket(`ws://localhost:8000/research/${id}/stream`);
                 ws.onmessage = (event: MessageEvent) => {
@@ -53,6 +59,8 @@ const page = () => {
                 ws.onclose = async () => {
                     const getSessionResponse: AxiosResponse<ResearchSession> = await api.get(`/research/${id}`);
                     setSession(getSessionResponse.data);
+                    const getSourcesResponse = await api.get(`/research/${id}/sources`);
+                    setSources(getSourcesResponse.data);
                 };
             }
         };
@@ -97,12 +105,36 @@ const page = () => {
                         )}
                     </Card>
                     {session?.status === "done" && (
-                        <Card className="max-w-5xl mx-auto p-6">
-                            <h2 className="text-xl font-semibold mb-4">Final Report</h2>
-                            <div className="prose prose-invert max-w-none">
-                                <ReactMarkdown>{session.final_report ?? ""}</ReactMarkdown>
-                            </div>
-                        </Card>
+                        <div className="space-y-5 mb-6">
+                            <Card className="max-w-5xl mx-auto p-6">
+                                <h2 className="text-xl font-semibold mb-4">Final Report</h2>
+                                <div className="prose prose-invert max-w-none">
+                                    <ReactMarkdown>{session.final_report ?? ""}</ReactMarkdown>
+                                </div>
+                            </Card>
+                            <Card className="max-w-5xl mx-auto p-6">
+                                <h2 className="text-xl font-semibold mb-4">Sources</h2>
+                                <div>
+                                    {sources &&
+                                        sources.map((source: Source) => (
+                                            <div
+                                                key={source.id}
+                                                className="text-lg text-blue-400 border-b border-gray-700 pb-4 mb-4 last:border-0"
+                                            >
+                                                <Link
+                                                    className=" hover:underline break-all font-semibold"
+                                                    href={source.url ?? "#"}
+                                                    target="_blank"
+                                                >
+                                                    {source.title}
+                                                </Link>
+                                                <h3 className="text-white text-sm">{source.url}</h3>
+                                                <p className="text-gray-400 text-sm line-clamp-2">{source.snippet}</p>
+                                            </div>
+                                        ))}
+                                </div>
+                            </Card>
+                        </div>
                     )}
                 </>
             )}
