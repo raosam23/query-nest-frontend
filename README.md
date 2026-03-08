@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# QueryNest Frontend 🔍
+
+The NextJS frontend for QueryNest — a multi-agent AI research assistant.
+
+> ⚠️ **Work in Progress** — This project is actively being developed.
+
+## Tech Stack
+
+- **NextJS 16** — React framework with App Router
+- **TypeScript** — Type safety
+- **Tailwind CSS** — Styling
+- **shadcn/ui** — Component library
+- **Axios** — HTTP client
+- **react-markdown** — Markdown rendering
+- **Sonner** — Toast notifications
+
+## Pages
+
+| Route            | Description                       | Auth Required |
+| ---------------- | --------------------------------- | ------------- |
+| `/`              | Redirects based on auth status    | No            |
+| `/login`         | Login page                        | No            |
+| `/register`      | Register page                     | No            |
+| `/dashboard`     | Research session history          | Yes           |
+| `/research/[id]` | Live research progress and report | Yes           |
+
+## Features
+
+- JWT authentication with cookie-based token storage
+- Route protection via NextJS proxy middleware
+- Live WebSocket streaming of agent progress
+- Final report rendered as markdown
+- Sources displayed with title, URL and snippet
+- Toast notifications for errors and success messages
+- Loading spinners for async operations
+- Dark theme throughout
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Make sure the QueryNest backend is running at `http://localhost:8000` before starting the frontend.
