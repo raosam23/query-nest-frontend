@@ -11,6 +11,7 @@ const Register = () => {
         try {
             await register(email, password);
             await login(email, password);
+            toast.success("Account created successfully. Welcome to QueryNest!")
             router.push("/dashboard");
         } catch (exc: unknown) {
             if (exc instanceof Error) {

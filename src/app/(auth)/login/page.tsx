@@ -4,15 +4,19 @@ import { login } from "@/lib/auth";
 import { toast } from "sonner";
 import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import AuthForm from "@/components/auth/AuthForm";
+import axios from "axios";
 
 const LoginPage = () => {
     const router: AppRouterInstance = useRouter();
     const handleLogin = async (email: string, password: string) => {
         try {
             await login(email, password);
+            toast.success('Welcome Back!')
             router.push("/dashboard");
         } catch (exc: unknown) {
-            if (exc instanceof Error) {
+            if (axios.isAxiosError(exc) && exc.response?.data?.detail) {
+                toast.error(exc.response.data.detail);
+            } else if (exc instanceof Error) {
                 console.error(`Exception caused: ${exc.message}`);
                 toast.error(exc.message);
             } else {
