@@ -7,7 +7,7 @@ export const login = async (email: string, password: string) => {
         email: email,
         password: password,
     });
-    localStorage.setItem("token", response.data.access_token);
+    document.cookie = `token=${response.data.access_token}; path=/; expires=${new Date(Date.now() + 60 * 60 * 24 * 7).toUTCString()}`;
     return response.data;
 };
 
@@ -20,7 +20,7 @@ export const register = async (email: string, password: string) => {
 };
 
 export const logout = () => {
-    localStorage.removeItem("token");
+    document.cookie = `token=; path=/; expires=${new Date(Date.now() - 60 * 60 * 24 * 7).toUTCString()}`;
 };
 
-export const getToken = () => localStorage.getItem("token");
+export const getToken = () => document.cookie.split("; ").find(row => row.startsWith('token='))?.split('=')[1] ?? null;

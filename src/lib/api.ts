@@ -5,7 +5,7 @@ const api: AxiosInstance = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-    const token: string | null = localStorage.getItem('token')
+    const token: string | null = document.cookie.split("; ").find(row => row.startsWith('token='))?.split('=')[1] ?? null;
     if (token != null) {
         config.headers['Authorization'] = `Bearer ${token}`
     }
