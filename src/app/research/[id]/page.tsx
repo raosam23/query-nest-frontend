@@ -121,13 +121,18 @@ const page = () => {
                                                 key={source.id}
                                                 className="text-lg text-blue-400 border-b border-gray-700 pb-4 mb-4 last:border-0"
                                             >
-                                                <Link
-                                                    className=" hover:underline break-all font-semibold"
-                                                    href={source.url ?? "#"}
-                                                    target="_blank"
-                                                >
-                                                    {source.title}
-                                                </Link>
+                                                <div className="flex justify-between items-center">
+                                                    <Link
+                                                        className=" hover:underline break-all font-semibold"
+                                                        href={source.url ?? "#"}
+                                                        target="_blank"
+                                                    >
+                                                        {source.title}
+                                                    </Link>
+                                                    {source.credibility_score !== null && (
+                                                        <Badge className="text-white bg-blue-400">{`${Math.round(source.credibility_score * 100)}% credible`}</Badge>
+                                                    )}
+                                                </div>
                                                 <h3 className="text-white text-sm">{source.url}</h3>
                                                 <p className="text-gray-400 text-sm line-clamp-2">{source.snippet}</p>
                                             </div>
