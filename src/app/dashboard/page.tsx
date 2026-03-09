@@ -38,6 +38,17 @@ const Dashboard = () => {
         toast.success("Logged out successfully!");
         router.push("/login");
     };
+    const handleDeleteSession = async (sessionId: string) => {
+        const response = await api.delete(`/history/${sessionId}`);
+        if (response.data.status === 200) {
+            toast.success(response.data.msg);
+            setSessions((prev: ResearchSession[]) =>
+                prev.filter((session: ResearchSession) => session.id !== sessionId),
+            );
+        } else {
+            toast.error("Failed to delete session");
+        }
+    };
 
     useEffect(() => {
         fetchSessions();
@@ -57,7 +68,7 @@ const Dashboard = () => {
                         value={query}
                         onChange={(event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
                     />
-                    <Button className="hover:cursor-pointer" onClick={handleNewResearch}>
+                    <Button className="hover:cursor-pointer" onClick={handleNewResearch} disabled={query.trim() === ""}>
                         New Research
                     </Button>
                 </div>
@@ -90,6 +101,13 @@ const Dashboard = () => {
                                         onClick={() => router.push(`/research/${session.id}`)}
                                     >
                                         View
+                                    </Button>
+                                    <Button
+                                        className="hover:cursor-pointer"
+                                        variant="destructive"
+                                        onClick={() => session && handleDeleteSession(session.id)}
+                                    >
+                                        Delete
                                     </Button>
                                 </div>
                             </Card>

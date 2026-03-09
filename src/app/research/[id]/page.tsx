@@ -72,12 +72,31 @@ const page = () => {
         };
     }, []);
 
+    const handleDeleteSession = async (sessionId: string) => {
+        const response = await api.delete(`/history/${sessionId}`);
+        if (response.data.status === 200) {
+            toast.success(response.data.msg);
+            router.push("/dashboard");
+        } else {
+            toast.error("Failed to delete session");
+        }
+    };
+
     return (
         <div className="min-h-screen p-10 bg-gray-800">
             <div className="max-w-5xl mx-auto space-y-4 mb-6">
-                <Button onClick={() => router.back()} className="hover: cursor-pointer">
-                    Back to the Dashboard
-                </Button>
+                <div className="flex justify-between items-center mb-4">
+                    <Button onClick={() => router.back()} className="hover: cursor-pointer">
+                        Back to the Dashboard
+                    </Button>
+                    <Button
+                        className="hover:cursor-pointer"
+                        variant="destructive"
+                        onClick={() => session && handleDeleteSession(session.id)}
+                    >
+                        Delete
+                    </Button>
+                </div>
                 <h1 className="text-4xl font-bold">{session?.query}</h1>
             </div>
 
@@ -90,7 +109,11 @@ const page = () => {
                     <Card className="max-w-5xl mx-auto p-6 space-y-3 mb-6">
                         <h2 className="text-xl font-semibold mb-4">Agent Progress</h2>
                         {agentUpdates.length === 0 && session?.status === "done" ? (
-                            <p className="text-gray-400 text-base">Research completed succesfully</p>
+                            <p className="text-gray-400 text-base">
+                                ✅ 4 agents completed • Search → Summarize → Fact Check → Write
+                            </p>
+                        ) : agentUpdates.length === 0 && session?.status === "failed" ? (
+                            <p className="text-gray-400 text-base">❌ Research pipeline failed</p>
                         ) : (
                             agentUpdates
                                 .filter((update: AgentUpdate) => update.agent && update.status)
