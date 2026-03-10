@@ -30,12 +30,17 @@ The NextJS frontend for QueryNest — a multi-agent AI research assistant.
 - Route protection via NextJS proxy middleware
 - Live WebSocket streaming of agent progress
 - Final report rendered as markdown
-- Sources displayed with title, URL and snippet
+- Sources displayed with title, URL, snippet and LLM-based credibility score
+- Delete session from dashboard and research page
 - Toast notifications for errors and success messages
 - Loading spinners for async operations
 - Dark theme throughout
 
 ## Getting Started
+
+> For running with Docker, see [querynest-infra](https://github.com/raosam23/query-nest-infra.git)
+
+For local development:
 
 ```bash
 npm install
@@ -47,3 +52,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ## Environment
 
 Make sure the QueryNest backend is running at `http://localhost:8000` before starting the frontend.
+
+Backend repository: [querynest-backend](https://github.com/raosam23/query-nest-backend.git)
+
+> For running both frontend and backend together with Docker, see [querynest-infra](https://github.com/raosam23/query-nest-infra.git)
