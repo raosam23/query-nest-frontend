@@ -2,8 +2,6 @@
 
 The NextJS frontend for QueryNest — a multi-agent AI research assistant.
 
-> ⚠️ **Work in Progress** — This project is actively being developed.
-
 ## Tech Stack
 
 - **NextJS 16** — React framework with App Router
