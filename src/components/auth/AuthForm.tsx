@@ -33,7 +33,7 @@ const AuthForm = ({ action, onSubmit }: { action: string; onSubmit: (email: stri
                 <div className="text-center">
                     {action === "Login" ? (
                         <Link className="text-blue-400 hover:underline" href="/register">
-                            Don't have an account? Register here
+                            Don&apos;t have an account? Register here
                         </Link>
                     ) : (
                         <Link href="/login" className="text-blue-400 hover:underline">

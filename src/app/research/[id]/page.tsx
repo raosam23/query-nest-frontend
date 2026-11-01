@@ -1,43 +1,106 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import axios, { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { getToken, logout } from "@/lib/auth";
+import { researchStreamUrl } from "@/lib/config";
+import { parseStreamMessage } from "@/lib/stream";
 import { ResearchSession, AgentUpdate, Source } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import ReactMarkdown from "react-markdown";
-import { AxiosResponse } from "axios";
 import { toast } from "sonner";
 import { badgeColor } from "@/app/utils/SessionStyles";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
-const page = () => {
+const ResearchPage = () => {
     const [session, setSession] = useState<ResearchSession | null>(null);
     const [agentUpdates, setAgentUpdates] = useState<AgentUpdate[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [sources, setSources] = useState<Source[]>([]);
+    const [pipelineError, setPipelineError] = useState<string | null>(null);
     const params = useParams();
     const router = useRouter();
-    useEffect(() => {
+    const sessionId = typeof params.id === "string" ? params.id : null;
+    const [activeId, setActiveId] = useState(sessionId);
+    if (sessionId !== activeId) {
+        setActiveId(sessionId);
+        setSession(null);
+        setAgentUpdates([]);
+        setSources([]);
+        setPipelineError(null);
         setLoading(true);
+    }
+
+    useEffect(() => {
+        if (!sessionId) {
+            return;
+        }
+        let cancelled = false;
+        let pipelineFailed = false;
         let ws: WebSocket | null = null;
-        const getSession = async () => {
-            const id = params.id;
-            const getSessionResponse: AxiosResponse<ResearchSession> = await api.get(`/research/${id}`);
-            const fetchedSession = getSessionResponse.data;
-            setSession(fetchedSession);
-            setLoading(false);
-            if (fetchedSession.status === "done") {
-                const getSourcesResponse = await api.get(`/research/${id}/sources`);
-                setSources(getSourcesResponse.data);
+
+        const redirectToLogin = () => {
+            logout();
+            toast.error("Please sign in again");
+            router.replace("/login");
+        };
+
+        const loadSession = async () => {
+            const token = getToken();
+            if (!token) {
+                redirectToLogin();
+                return;
             }
-            if (fetchedSession.status === "pending" || fetchedSession.status === "running") {
-                ws = new WebSocket(`ws://localhost:8000/research/${id}/stream`);
+
+            try {
+                const getSessionResponse: AxiosResponse<ResearchSession> = await api.get(`/research/${sessionId}`);
+                if (cancelled) {
+                    return;
+                }
+                const fetchedSession = getSessionResponse.data;
+                setSession(fetchedSession);
+                setLoading(false);
+                if (fetchedSession.status === "done") {
+                    const getSourcesResponse = await api.get<Source[]>(`/research/${sessionId}/sources`);
+                    if (!cancelled) {
+                        setSources(getSourcesResponse.data);
+                    }
+                }
+                if (fetchedSession.status !== "pending" && fetchedSession.status !== "running") {
+                    return;
+                }
+
+                const liveToken = getToken();
+                if (!liveToken) {
+                    redirectToLogin();
+                    return;
+                }
+
+                ws = new WebSocket(researchStreamUrl(sessionId, liveToken));
                 ws.onmessage = (event: MessageEvent) => {
                     try {
-                        const data: AgentUpdate = JSON.parse(event.data);
+                        const parsed = parseStreamMessage(JSON.parse(event.data));
+                        if (parsed.kind === "completed") {
+                            if (parsed.status === "failed") {
+                                pipelineFailed = true;
+                                const message =
+                                    parsed.error?.trim() || "The research pipeline failed before it could finish.";
+                                setPipelineError(message);
+                                setSession((prev: ResearchSession | null) =>
+                                    prev ? { ...prev, status: "failed" } : prev,
+                                );
+                                toast.error(message);
+                            }
+                            return;
+                        }
+                        if (parsed.kind !== "agent") {
+                            return;
+                        }
+                        const data = parsed.update;
                         setAgentUpdates((prev: AgentUpdate[]) => {
                             const existing = prev.findIndex((update: AgentUpdate) => update.agent === data.agent);
                             if (existing !== -1) {
@@ -52,28 +115,78 @@ const page = () => {
                         toast.error("Failed to get the agent updates");
                     }
                 };
-                ws.onerror = (event) => {
-                    console.error("Websocket error: ", event);
+                ws.onerror = () => {
+                    if (cancelled) {
+                        return;
+                    }
+                    console.error("Websocket error");
                     toast.error("Failed to get the agent updates");
                 };
-                ws.onclose = async () => {
-                    const getSessionResponse: AxiosResponse<ResearchSession> = await api.get(`/research/${id}`);
-                    setSession(getSessionResponse.data);
-                    const getSourcesResponse = await api.get(`/research/${id}/sources`);
-                    setSources(getSourcesResponse.data);
+                ws.onclose = async (event: CloseEvent) => {
+                    if (cancelled) {
+                        return;
+                    }
+                    if (event.code === 1008) {
+                        redirectToLogin();
+                        return;
+                    }
+                    try {
+                        const refreshed: AxiosResponse<ResearchSession> = await api.get(`/research/${sessionId}`);
+                        if (cancelled) {
+                            return;
+                        }
+                        if (pipelineFailed || refreshed.data.status === "failed") {
+                            setSession({ ...refreshed.data, status: "failed" });
+                            setPipelineError(
+                                (current: string | null) =>
+                                    current ?? "The research pipeline failed before it could finish.",
+                            );
+                            return;
+                        }
+                        setSession(refreshed.data);
+                        if (refreshed.data.status === "done") {
+                            const getSourcesResponse = await api.get<Source[]>(`/research/${sessionId}/sources`);
+                            if (!cancelled) {
+                                setSources(getSourcesResponse.data);
+                            }
+                        }
+                    } catch (err) {
+                        if (cancelled) {
+                            return;
+                        }
+                        if (axios.isAxiosError(err) && err.response?.status === 401) {
+                            redirectToLogin();
+                            return;
+                        }
+                        console.error("Failed to refresh the research session: ", err);
+                        toast.error("Failed to refresh the research session");
+                    }
                 };
+            } catch (err) {
+                if (cancelled) {
+                    return;
+                }
+                if (axios.isAxiosError(err) && err.response?.status === 401) {
+                    redirectToLogin();
+                    return;
+                }
+                console.error("Failed to load the research session: ", err);
+                toast.error("Failed to load the research session");
+                setLoading(false);
             }
         };
-        getSession();
+
+        loadSession();
         return () => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            cancelled = true;
+            if (ws && ws.readyState !== WebSocket.CLOSED) {
                 ws.close();
             }
         };
-    }, []);
+    }, [sessionId, router]);
 
-    const handleDeleteSession = async (sessionId: string) => {
-        const response = await api.delete(`/history/${sessionId}`);
+    const handleDeleteSession = async (id: string) => {
+        const response = await api.delete(`/history/${id}`);
         if (response.data.status === 200) {
             toast.success(response.data.msg);
             router.push("/dashboard");
@@ -81,6 +194,16 @@ const page = () => {
             toast.error("Failed to delete session");
         }
     };
+
+    const failed = pipelineError !== null || session?.status === "failed";
+    const agentRows = agentUpdates
+        .filter((update: AgentUpdate) => update.agent && update.status)
+        .map((update: AgentUpdate) => (
+            <div key={update.agent} className="flex justify-between items-center">
+                <p>{update.agent}</p>
+                <Badge className={`${badgeColor(update.status)} text-white`}>{update.status}</Badge>
+            </div>
+        ));
 
     return (
         <div className="min-h-screen p-10 bg-gray-800">
@@ -108,26 +231,28 @@ const page = () => {
                 <>
                     <Card className="max-w-5xl mx-auto p-6 space-y-3 mb-6">
                         <h2 className="text-xl font-semibold mb-4">Agent Progress</h2>
-                        {agentUpdates.length === 0 && session?.status === "done" ? (
+                        {failed ? (
+                            <>
+                                <div
+                                    role="alert"
+                                    className="rounded-lg border border-red-500 bg-red-950/40 px-4 py-3"
+                                >
+                                    <p className="text-base font-medium text-red-300">Research pipeline failed</p>
+                                    {pipelineError ? (
+                                        <p className="mt-2 text-sm text-gray-100 break-words">{pipelineError}</p>
+                                    ) : null}
+                                </div>
+                                {agentRows}
+                            </>
+                        ) : agentUpdates.length === 0 && session?.status === "done" ? (
                             <p className="text-gray-400 text-base">
                                 ✅ 4 agents completed • Search → Summarize → Fact Check → Write
                             </p>
-                        ) : agentUpdates.length === 0 && session?.status === "failed" ? (
-                            <p className="text-gray-400 text-base">❌ Research pipeline failed</p>
                         ) : (
-                            agentUpdates
-                                .filter((update: AgentUpdate) => update.agent && update.status)
-                                .map((update: AgentUpdate, index: number) => (
-                                    <div key={index} className="flex justify-between items-center">
-                                        <p>{update.agent}</p>
-                                        <Badge className={`${badgeColor(update.status)} text-white`}>
-                                            {update.status}
-                                        </Badge>
-                                    </div>
-                                ))
+                            agentRows
                         )}
                     </Card>
-                    {session?.status === "done" && (
+                    {session?.status === "done" && pipelineError === null && (
                         <div className="space-y-5 mb-6">
                             <Card className="max-w-5xl mx-auto p-6">
                                 <h2 className="text-xl font-semibold mb-4">Final Report</h2>
@@ -170,4 +295,4 @@ const page = () => {
     );
 };
 
-export default page;
+export default ResearchPage;
