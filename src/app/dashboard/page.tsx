@@ -16,17 +16,10 @@ import { toast } from "sonner";
 const Dashboard = () => {
     const [sessions, setSessions] = useState<ResearchSession[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
-    const [modalOpen, setModalOpen] = useState<boolean>(false);
     const [query, setQuery] = useState<string>("");
 
     const router = useRouter();
 
-    const fetchSessions = async () => {
-        setLoading(true);
-        const historyResponse: AxiosResponse = await api.get("/history");
-        setSessions(historyResponse.data);
-        setLoading(false);
-    };
     const handleNewResearch = async () => {
         const researchResponse: AxiosResponse<ResearchSession> = await api.post("/research", {
             query,
@@ -51,7 +44,19 @@ const Dashboard = () => {
     };
 
     useEffect(() => {
-        fetchSessions();
+        let cancelled = false;
+        const loadSessions = async () => {
+            const historyResponse: AxiosResponse = await api.get("/history");
+            if (cancelled) {
+                return;
+            }
+            setSessions(historyResponse.data);
+            setLoading(false);
+        };
+        loadSessions();
+        return () => {
+            cancelled = true;
+        };
     }, []);
     return (
         <div className="min-h-screen p-10 bg-gray-800">

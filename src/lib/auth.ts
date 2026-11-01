@@ -1,5 +1,6 @@
 import { AxiosResponse } from "axios";
 import api from "./api";
+import { tokenFromCookie } from "./token";
 import { LoginResponse } from "@/types";
 
 export const login = async (email: string, password: string) => {
@@ -23,4 +24,4 @@ export const logout = () => {
     document.cookie = `token=; path=/; expires=${new Date(Date.now() - 60 * 60 * 24 * 7).toUTCString()}`;
 };
 
-export const getToken = () => document.cookie.split("; ").find(row => row.startsWith('token='))?.split('=')[1] ?? null;
+export const getToken = () => tokenFromCookie(document.cookie);

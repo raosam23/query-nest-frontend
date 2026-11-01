@@ -90,19 +90,21 @@ While the socket is open, the page shows one row per agent. When the socket clos
 - **Route guard** — `src/proxy.ts` sends `/` to `/dashboard` or `/login`, keeps a signed-in user out of the auth pages, and sends an anonymous user away from `/dashboard` and `/research`.
 - **History** — the dashboard lists your sessions, newest first, with a `pending`, `running`, `done`, or `failed` badge.
 - **New research** — a question goes to `POST /research`. The API returns the session immediately, and the app opens `/research/{id}`.
-- **Live agent rows** — while the session is `pending` or `running`, the page opens `ws://localhost:8000/research/{id}/stream` and shows each agent's name and status.
+- **Live agent rows** — while the session is `pending` or `running`, the page opens `/research/{id}/stream?token=` with the access token from `getToken()` and shows each agent's name and status. The socket host comes from `NEXT_PUBLIC_API_URL` (`http` → `ws`, `https` → `wss`).
 - **Report** — when the status is `done`, `final_report` is rendered as markdown under the agent card.
+- **Failed runs** — `pipeline_completed` with `status: "failed"` keeps the agent rows and shows the message's `error` in the progress card. It does not render the report. A session that is already `failed` shows the same failure state.
+- **Auth on the socket** — a missing token, or a close code `1008`, clears the `token` cookie and sends the user to `/login`.
 - **Finished sessions** — opening one that is already `done` skips the socket. The progress card is the line "4 agents completed • Search → Summarize → Fact Check → Write".
 - **Sources** — title, URL, snippet, and credibility. The score is a 0–1 float, shown as a percent.
 - **Delete** — from the dashboard or the research page. The API returns `{ status: 200, msg }`.
-- **Toasts** — Sonner, for sign-in, sign-up, logout, and delete.
+- **Toasts** — Sonner, for sign-in, sign-up, logout, delete, a failed research run, and a socket that sends the user back to login.
 - **Dark theme** — `html` is `dark`, pages use `bg-gray-800`, and the typeface is Saira.
 
 ---
 
 ## How live updates work
 
-JSON calls go through Axios. The research page opens the WebSocket itself. A new session comes back from `POST /research` as `pending`. The background crew then marks it `running`, and this page treats those two statuses the same: it connects.
+JSON calls go through Axios. The research page opens the WebSocket itself. A new session comes back from `POST /research` as `pending`. The background crew then marks it `running`, and this page treats those two statuses the same: it connects. The JWT from the `token` cookie is sent as `?token=`, because the browser cannot set `Authorization` on a WebSocket. If that cookie has no token, or the server closes with code `1008` (bad token, or a session owned by someone else), the page clears the cookie and opens `/login`.
 
 ```mermaid
 sequenceDiagram
@@ -116,15 +118,19 @@ sequenceDiagram
     B-->>D: id, status pending
     D->>R: Open /research/{id}
     R->>B: GET /research/{id}
-    R->>B: WebSocket /research/{id}/stream
+    R->>B: WebSocket /research/{id}/stream?token=JWT
     loop Each agent update
         B-->>R: agent, status, and output when finished
         R->>R: Replace that agent's row
     end
-    B-->>R: type pipeline_completed, then the socket closes
+    B-->>R: pipeline_completed, status done or failed, then the socket closes
     R->>B: GET /research/{id}
-    R->>B: GET /research/{id}/sources
-    R->>R: Render the report and the sources
+    alt status done
+        R->>B: GET /research/{id}/sources
+        R->>R: Render the report and the sources
+    else status failed
+        R->>R: Show the failure and the error string
+    end
 ```
 
 Messages look like this:
@@ -132,12 +138,13 @@ Messages look like this:
 ```json
 { "agent": "search_agent", "status": "running" }
 { "agent": "search_agent", "status": "done", "output": "Found 5 results" }
-{ "type": "pipeline_completed" }
+{ "type": "pipeline_completed", "status": "done" }
+{ "type": "pipeline_completed", "status": "failed", "error": "research pipeline failed" }
 ```
 
-The crew emits those for `search_agent`, `summarizer_agent`, `fact_checker_agent`, and `writer_agent`, in that order. The supervisor that routes them is not a row. This client shows the agent name and the status badge. It keeps `output` on the update and does not render it. A message with no `agent` (including `pipeline_completed`) is ignored. The server then closes the socket, `onclose` refetches the session and the sources, and a `done` session renders the report.
+The crew emits agent messages for `search_agent`, `summarizer_agent`, `fact_checker_agent`, and `writer_agent`, in that order. The supervisor that routes them is not a row. This client shows the agent name and the status badge. It keeps `output` on the update and does not render it. `pipeline_completed` is not a row. `status: "done"` means the server is about to close the socket; `onclose` refetches the session and, when that refetch is `done`, the sources, then the report renders. `status: "failed"` shows a failure alert with the `error` text and does not render the report. A completion message with no `status` is treated as success, which matches the older payload.
 
-Opening a session that is already `done` skips the socket. The progress card then reads "4 agents completed • Search → Summarize → Fact Check → Write". A `failed` session with no rows reads "Research pipeline failed".
+Opening a session that is already `done` skips the socket. The progress card then reads "4 agents completed • Search → Summarize → Fact Check → Write". Opening one that is already `failed` also skips the socket and shows the failure alert. The `error` string exists only on the live completion message, so a session opened later has the alert without that detail.
 
 ---
 
@@ -178,6 +185,9 @@ src/
 ├── lib/
 │   ├── api.ts                    # Axios client, Bearer header
 │   ├── auth.ts                   # Login, register, cookie
+│   ├── config.ts                 # API origin and WebSocket URL
+│   ├── stream.ts                 # Research stream message parsing
+│   ├── token.ts                  # Read the token cookie
 │   └── utils.ts
 ├── proxy.ts                      # Route guard
 └── types/index.ts
@@ -202,7 +212,7 @@ src/
 | Start research | `POST /research` |
 | One session | `GET /research/{session_id}` |
 | Sources | `GET /research/{session_id}/sources` |
-| Live agent status | `WS /research/{session_id}/stream` |
+| Live agent status | `WS /research/{session_id}/stream?token=` |
 
 `POST /auth/register` returns `{ message, email }`. `POST /auth/login` returns `{ access_token, token_type }`. A session is `{ id, query, status, final_report, created_at }`. A source is `{ id, url, title, snippet, credibility_score }`. Delete returns `{ status, msg }`.
 
@@ -210,7 +220,7 @@ src/
 
 ## Getting started
 
-QueryNest needs both repositories. This frontend calls `http://localhost:8000` and opens its WebSocket on the same host. Start the [backend](https://github.com/raosam23/query-nest-backend) first. A live query also needs that service's database, `JWT_SECRET`, OpenAI key, and Tavily key. The screenshots in this README do not.
+QueryNest needs both repositories. This frontend calls `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`) and opens its WebSocket on that same host, with `http` rewritten to `ws` and `https` rewritten to `wss`. The access token is a `token` query parameter on the socket. Start the [backend](https://github.com/raosam23/query-nest-backend) first. A live query also needs that service's database, `JWT_SECRET`, OpenAI key, and Tavily key. The screenshots in this README do not.
 
 To run the frontend, the API, and Postgres together, use [query-nest-infra](https://github.com/raosam23/query-nest-infra) (`docker compose up --build`). The `Dockerfile` in this repo runs `npm run dev`.
 
@@ -240,14 +250,19 @@ Open [http://localhost:3000](http://localhost:3000). Register, ask a question, a
 
 ## Environment
 
-This app does not read an env file. Nothing is prefixed with `NEXT_PUBLIC_`. The origin is hardcoded:
+REST and the research WebSocket share one origin, `NEXT_PUBLIC_API_URL`. The socket URL is that value with the scheme rewritten (`http` → `ws`, `https` → `wss`), then `/research/{id}/stream?token=`. When the variable is unset or blank, the origin is `http://localhost:8000`. That default matches a backend on port 8000, including the query-nest-infra Compose stack: the browser runs on the host, so it still uses `localhost`, not the Compose service name.
 
-| Location | Value |
-| -------- | ----- |
-| `src/lib/api.ts` | Axios `baseURL` is `http://localhost:8000` |
-| `src/app/research/[id]/page.tsx` | WebSocket is `ws://localhost:8000/research/{id}/stream` |
+```bash
+cp .env.example .env.local
+```
 
-The token cookie is written by the browser. Axios copies it into the `Authorization` header. It is not sent as a cookie to the API.
+| Variable | Required | Default | Purpose |
+| -------- | -------- | ------- | ------- |
+| `NEXT_PUBLIC_API_URL` | No | `http://localhost:8000` | API origin, scheme + host + port, no path. The WebSocket origin is derived from it. |
+
+Next.js inlines `NEXT_PUBLIC_*` when it compiles the client bundle. Restart `npm run dev` after changing `.env.local`. `npm run build` stores the value from the environment that runs the build. Do not put secrets in this variable; it is visible in the browser.
+
+The token cookie is written by the browser (`src/lib/auth.ts`, `getToken()`). Axios copies it into the `Authorization` header. The WebSocket cannot set that header, so the research page puts the same value in `?token=`. It is not sent as a cookie to the API. A missing token, or a socket the server closes with code `1008`, clears the cookie and opens `/login`.
 
 ---
 
@@ -259,6 +274,7 @@ The token cookie is written by the browser. Axios copies it into the `Authorizat
 | `npm run build` | Production build |
 | `npm run start` | Serve the production build |
 | `npm run lint` | Run ESLint |
+| `npm test` | URL derivation and stream-message parsing (`node --test`) |
 | `npm run screenshots` | Rebuild the app and refresh `docs/screenshots/` |
 
 ---
@@ -267,7 +283,7 @@ The token cookie is written by the browser. Axios copies it into the `Authorizat
 
 [`scripts/capture-screenshots.mjs`](scripts/capture-screenshots.mjs) rebuilds the production app, opens it in headless Chrome, and saves PNGs to `docs/screenshots/`.
 
-Requests to `http://localhost:8000` and the research WebSocket are intercepted in the browser. The mock covers every call this UI makes: register, login, session list, create, fetch, sources, and delete, plus the agent stream (`running`, then `done` with `output`, then `pipeline_completed`, then the socket closes). Nothing in the application code is stubbed. No Postgres, LLM key, or running backend is required.
+The script sets `NEXT_PUBLIC_API_URL` to `http://localhost:8000` for the production build, then intercepts that origin and the research WebSocket in the browser. The mock covers every call this UI makes: register, login, session list, create, fetch, sources, and delete, plus the agent stream (`running`, then `done` with `output`, then `pipeline_completed` with `status: "done"`, then the socket closes). The page connects with `?token=`. A socket URL without that parameter is closed with code `1008`. Nothing in the application code is stubbed. No Postgres, LLM key, or running backend is required.
 
 Google Chrome needs to be installed, and port 3000 needs to be free.
 

@@ -13,18 +13,19 @@
  *                                  background run is what flips it to running)
  *   GET    /research/{session_id}     ResearchResponse
  *   GET    /research/{session_id}/sources   SourceResponse[]
- *   WS     /research/{session_id}/stream
+ *   WS     /research/{session_id}/stream?token=
  *          { agent, status } then { agent, status, output }
  *          agents: search_agent, summarizer_agent, fact_checker_agent, writer_agent
- *          then { type: "pipeline_completed" } and the socket closes
+ *          then { type: "pipeline_completed", status: "done" } and the socket closes
+ *          A connection without ?token= is closed with code 1008.
  *
  * Re-run from the repo root (Google Chrome required, port 3000 free):
  *   npm run screenshots
  *
  * The script rebuilds the production app, serves it on port 3000, writes PNGs
  * to docs/screenshots/, and stops the server. No Postgres, OpenAI key, or
- * running backend is required. The API origin is hardcoded in the app
- * (http://localhost:8000 and ws://localhost:8000).
+ * running backend is required. The build sets NEXT_PUBLIC_API_URL to
+ * http://localhost:8000 so REST and the derived WebSocket stay on that origin.
  */
 import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
@@ -129,7 +130,7 @@ const AGENT_FINISH = [
     status: "done",
     output: "Report generated successfully. Length: 612 characters",
   },
-  { type: "pipeline_completed" },
+  { type: "pipeline_completed", status: "done" },
 ];
 
 const CORS = {
@@ -270,8 +271,15 @@ function watchResearchSocket(context) {
   const progressDone = new Promise((resolve) => {
     resolveProgress = resolve;
   });
-  const ready = context.routeWebSocket(/\/research\/[^/]+\/stream$/, (ws) => {
-    const id = new URL(ws.url()).pathname.split("/")[2];
+  const ready = context.routeWebSocket(/\/research\/[^/]+\/stream(?:\?.*)?$/, (ws) => {
+    const url = new URL(ws.url());
+    const token = url.searchParams.get("token");
+    if (!token) {
+      console.error(`  ws rejected, missing token ${url.pathname}`);
+      ws.close({ code: 1008, reason: "Invalid token or session access denied" });
+      return;
+    }
+    const id = url.pathname.split("/")[2];
     console.log(`  ws open ${id}`);
     if (id === FUSION_ID && !progressDelivered) {
       pageSocket = ws;
@@ -318,7 +326,12 @@ function run(args, extraEnv = {}) {
     cwd: ROOT,
     detached: true,
     stdio: "inherit",
-    env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", ...extraEnv },
+    env: {
+      ...process.env,
+      NEXT_TELEMETRY_DISABLED: "1",
+      NEXT_PUBLIC_API_URL: API_ORIGIN,
+      ...extraEnv,
+    },
   });
 }
 
@@ -440,7 +453,9 @@ async function exerciseApi(page) {
 
       const wsMessages = await new Promise((resolve, reject) => {
         const messages = [];
-        const ws = new WebSocket(`ws://localhost:8000/research/${fusionId}/stream`);
+        const ws = new WebSocket(
+          `ws://localhost:8000/research/${fusionId}/stream?token=${encodeURIComponent("mock-access-token")}`,
+        );
         const timer = setTimeout(() => reject(new Error("WebSocket timed out")), 8000);
         ws.onmessage = (event) => messages.push(JSON.parse(event.data));
         ws.onerror = () => {
@@ -540,8 +555,10 @@ async function exerciseApi(page) {
   if (doneSearch?.output !== "Found 5 results") {
     throw new Error("Search done payload missing output");
   }
-  const completed = report.wsMessages.some((message) => message.type === "pipeline_completed");
-  if (!completed) throw new Error("WebSocket did not send pipeline_completed");
+  const completed = report.wsMessages.find((message) => message.type === "pipeline_completed");
+  if (!completed || completed.status !== "done") {
+    throw new Error(`WebSocket completion was ${JSON.stringify(completed ?? null)}`);
+  }
   if (!report.createdId) throw new Error("Created research session had no id");
   console.log("  api mock ok");
 }
