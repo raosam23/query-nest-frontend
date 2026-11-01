@@ -18,13 +18,13 @@
  *          agents: search_agent, summarizer_agent, fact_checker_agent, writer_agent
  *          then { type: "pipeline_completed" } and the socket closes
  *
- * Re-run from the repo root (Google Chrome required, port 3000 free):
+ * Re-run from the repo root (Playwright Chromium installed, port 3000 free):
  *   npm run screenshots
  *
  * The script rebuilds the production app, serves it on port 3000, writes PNGs
  * to docs/screenshots/, and stops the server. No Postgres, OpenAI key, or
- * running backend is required. The API origin is hardcoded in the app
- * (http://localhost:8000 and ws://localhost:8000).
+ * running backend is required. The API origin defaults to http://localhost:8000
+ * and can be set with NEXT_PUBLIC_API_URL. The app uses the matching ws:// or wss:// origin.
  */
 import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
@@ -36,8 +36,9 @@ import { chromium } from "playwright-core";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = path.join(ROOT, "docs", "screenshots");
-const API_ORIGIN = "http://localhost:8000";
-const PORT = 3000;
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+const WS_ORIGIN = API_ORIGIN.replace(/^https:/i, "wss:").replace(/^http:/i, "ws:");
+const PORT = Number(process.env.SCREENSHOT_PORT ?? 3000);
 const BASE = `http://127.0.0.1:${PORT}`;
 
 const EMAIL = "maya.chen@example.com";
@@ -102,6 +103,7 @@ const sessions = [
     "Have independent labs reproduced the LK-99 result?",
     "failed",
     "2026-09-30T15:00:00.000Z",
+    "No sources found for this query after retrying the search.",
   ),
 ];
 
@@ -129,7 +131,7 @@ const AGENT_FINISH = [
     status: "done",
     output: "Report generated successfully. Length: 612 characters",
   },
-  { type: "pipeline_completed" },
+  { type: "pipeline_completed", status: "done" },
 ];
 
 const CORS = {
@@ -270,8 +272,12 @@ function watchResearchSocket(context) {
   const progressDone = new Promise((resolve) => {
     resolveProgress = resolve;
   });
-  const ready = context.routeWebSocket(/\/research\/[^/]+\/stream$/, (ws) => {
-    const id = new URL(ws.url()).pathname.split("/")[2];
+  const ready = context.routeWebSocket(/\/research\/[^/]+\/stream(?:\?.*)?$/, (ws) => {
+    const socketUrl = new URL(ws.url());
+    const id = socketUrl.pathname.split("/")[2];
+    if (!socketUrl.searchParams.get("token")) {
+      throw new Error("Research WebSocket did not include its token query parameter");
+    }
     console.log(`  ws open ${id}`);
     if (id === FUSION_ID && !progressDelivered) {
       pageSocket = ws;
@@ -405,7 +411,7 @@ async function dismissWelcome(page) {
 
 async function exerciseApi(page) {
   const report = await page.evaluate(
-    async ({ api, fusionId, lk99Id }) => {
+    async ({ api, wsOrigin, fusionId, lk99Id }) => {
       const calls = [];
       async function hit(method, path, options = {}) {
         const response = await fetch(`${api}${path}`, {
@@ -440,7 +446,11 @@ async function exerciseApi(page) {
 
       const wsMessages = await new Promise((resolve, reject) => {
         const messages = [];
-        const ws = new WebSocket(`ws://localhost:8000/research/${fusionId}/stream`);
+        const token = document.cookie.split("; ").find((row) => row.startsWith("token="))?.slice("token=".length);
+        if (!token) throw new Error("Login did not store the expected token cookie");
+        const ws = new WebSocket(
+          `${wsOrigin}/research/${fusionId}/stream?token=${encodeURIComponent(token)}`,
+        );
         const timer = setTimeout(() => reject(new Error("WebSocket timed out")), 8000);
         ws.onmessage = (event) => messages.push(JSON.parse(event.data));
         ws.onerror = () => {
@@ -474,7 +484,7 @@ async function exerciseApi(page) {
         wsMessages,
       };
     },
-    { api: API_ORIGIN, fusionId: FUSION_ID, lk99Id: LK99_ID },
+    { api: API_ORIGIN, wsOrigin: WS_ORIGIN, fusionId: FUSION_ID, lk99Id: LK99_ID },
   );
 
   const expect = (method, path, status) => {
@@ -576,6 +586,13 @@ async function capture(browser) {
   await register.getByText("Already have an account? Login here").waitFor();
   await shoot(register, "register.png", 2880, 1800);
 
+  const unauthenticated = await anon.newPage();
+  await unauthenticated.goto(`${BASE}/research/${FUSION_ID}`, { waitUntil: "networkidle" });
+  if (new URL(unauthenticated.url()).pathname !== "/login") {
+    throw new Error("Research page without a token did not redirect to /login");
+  }
+  await unauthenticated.close();
+
   await login.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await login.getByPlaceholder("Email").fill(EMAIL);
   await login.getByPlaceholder("Password").fill(PASSWORD);
@@ -635,6 +652,10 @@ async function capture(browser) {
   await assertFullyVisible(login, login.getByRole("heading", { name: FUSION_QUERY }), "query title");
   await shoot(login, "report.png", 2880, 1800);
 
+  await login.goto(`${BASE}/research/${LK99_ID}`, { waitUntil: "networkidle" });
+  await login.getByRole("heading", { name: "Research failed" }).waitFor();
+  await login.getByText("No sources found for this query after retrying the search.", { exact: true }).waitFor();
+
   await exerciseApi(login);
   await anon.close();
 
@@ -686,7 +707,6 @@ async function main() {
   try {
     await waitForServer(serverProcess);
     const browser = await chromium.launch({
-      channel: "chrome",
       headless: true,
       args: ["--disable-dev-shm-usage", "--no-sandbox"],
     });

@@ -20,7 +20,7 @@ export const register = async (email: string, password: string) => {
 };
 
 export const logout = () => {
-    document.cookie = `token=; path=/; expires=${new Date(Date.now() - 60 * 60 * 24 * 7).toUTCString()}`;
+    document.cookie = `token=; path=/; expires=${new Date(0).toUTCString()}; SameSite=Lax`;
 };
 
-export const getToken = () => document.cookie.split("; ").find(row => row.startsWith('token='))?.split('=')[1] ?? null;
+export const getToken = () => document.cookie.split("; ").find(row => row.startsWith("token="))?.slice("token=".length) ?? null;

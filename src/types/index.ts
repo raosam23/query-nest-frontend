@@ -19,10 +19,19 @@ export interface Source {
 }
 
 export interface AgentUpdate {
+  type?: never;
   agent: string;
   status: AgentStatus;
   output?: string;
 }
+
+export interface PipelineCompletedMessage {
+  type: "pipeline_completed";
+  status: "done" | "failed";
+  error?: string;
+}
+
+export type ResearchStreamMessage = AgentUpdate | PipelineCompletedMessage;
 
 export interface LoginResponse {
   access_token: string;
